@@ -21,6 +21,12 @@ const MENU = [
     roles: ['CLIENTE', 'GROOMER', 'CAJERO', 'ADMINISTRADOR']
   },
   {
+    path: '/fichas',
+    label: 'Fichas',
+    icono: '📋',
+    roles: ['GROOMER', 'ADMINISTRADOR']
+  },
+  {
     path: '/clientes',
     label: 'Clientes',
     icono: '👥',
@@ -43,6 +49,12 @@ const MENU = [
     label: 'Facturas',
     icono: '🧾',
     roles: ['CAJERO', 'ADMINISTRADOR']
+  },
+  {
+    path: '/reportes',
+    label: 'Reportes',
+    icono: '📊',
+    roles: ['ADMINISTRADOR']
   },
   {
     path: '/admin/personal',

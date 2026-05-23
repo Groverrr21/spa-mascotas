@@ -11,11 +11,10 @@ export function useCitas(perfil) {
     setLoading(true)
 
     try {
-      // Paso 1: traer las citas básicas
       let query = supabase
         .from('cita')
         .select(`
-          id, fecha, estado, hora_estimada_recojo, created_at,
+          id, fecha, estado, hora_estimada_recojo, motivo_cancelacion, created_at,
           id_mascota, id_groomer,
           mascota ( id, nombre, raza ),
           cita_servicio (
@@ -25,7 +24,6 @@ export function useCitas(perfil) {
         `)
         .order('fecha', { ascending: false })
 
-      // Filtrar por rol
       if (perfil.rol === 'CLIENTE') {
         const { data: mascotas } = await supabase
           .from('mascota')
@@ -33,11 +31,7 @@ export function useCitas(perfil) {
           .eq('id_cliente', perfil.id)
 
         const ids = (mascotas ?? []).map(m => m.id)
-        if (ids.length === 0) {
-          setCitas([])
-          setLoading(false)
-          return
-        }
+        if (ids.length === 0) { setCitas([]); setLoading(false); return }
         query = query.in('id_mascota', ids)
 
       } else if (perfil.rol === 'GROOMER') {
@@ -47,11 +41,9 @@ export function useCitas(perfil) {
       const { data: citasData, error } = await query
       if (error) throw error
 
-      // Paso 2: traer los nombres de los groomers por separado
+      // Traer nombres de groomers por separado
       const groomerIds = [...new Set(
-        (citasData ?? [])
-          .map(c => c.id_groomer)
-          .filter(Boolean)
+        (citasData ?? []).map(c => c.id_groomer).filter(Boolean)
       )]
 
       let groomersMap = {}
@@ -60,11 +52,9 @@ export function useCitas(perfil) {
           .from('usuario')
           .select('id, nombre')
           .in('id', groomerIds)
-
         groomersData?.forEach(g => { groomersMap[g.id] = g.nombre })
       }
 
-      // Paso 3: combinar citas con nombre del groomer
       const citasCompletas = (citasData ?? []).map(cita => ({
         ...cita,
         groomer: cita.id_groomer
@@ -122,6 +112,29 @@ export function useCitas(perfil) {
     fetchCitas()
   }
 
+  // ── CANCELAR con motivo y política ───────────────────────────
+  const cancelarCita = async (id, motivo) => {
+    try {
+      const { error } = await supabase
+        .from('cita')
+        .update({
+          estado:             'CANCELADA',
+          motivo_cancelacion: motivo,
+          acepto_politica:    true,
+        })
+        .eq('id', id)
+
+      if (error) throw error
+      toast.success('Cita cancelada')
+      fetchCitas()
+      return true
+    } catch (e) {
+      console.error(e)
+      toast.error('Error al cancelar la cita')
+      return false
+    }
+  }
+
   const eliminarCita = async (id) => {
     const { error } = await supabase
       .from('cita')
@@ -137,5 +150,5 @@ export function useCitas(perfil) {
     if (perfil) fetchCitas()
   }, [perfil?.id])
 
-  return { citas, loading, crearCita, cambiarEstado, eliminarCita }
+  return { citas, loading, crearCita, cambiarEstado, cancelarCita, eliminarCita }
 }

@@ -13,6 +13,8 @@ import GestionPersonal from '../pages/admin/GestionPersonal'
 import Logs from '../pages/admin/Logs'
 import Calendario from '../pages/calendario/Calendario'
 import Inventario from '../pages/inventario/Inventario'
+import Reportes from '../pages/reportes/Reportes'
+import FichaTecnica from '../pages/fichas/FichaTecnica'
 
 const Proximamente = ({ nombre }) => (
   <div>
@@ -71,7 +73,11 @@ export default function AppRouter() {
           <Citas />
         </ConLayout>
       } />
-
+      <Route path="/fichas" element={
+        <ConLayout rolesPermitidos={['ADMINISTRADOR', 'GROOMER']}>
+          <FichaTecnica />
+        </ConLayout>
+      } />
       <Route path="/servicios" element={
         <ConLayout rolesPermitidos={['ADMINISTRADOR']}>
           <Servicios />
@@ -81,6 +87,12 @@ export default function AppRouter() {
       <Route path="/inventario" element={
         <ConLayout rolesPermitidos={['ADMINISTRADOR','GROOMER']}>
           <Inventario />
+        </ConLayout>
+      } />
+
+      <Route path="/reportes" element={
+        <ConLayout rolesPermitidos={['ADMINISTRADOR']}>
+          <Reportes />
         </ConLayout>
       } />
 
