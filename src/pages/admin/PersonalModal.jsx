@@ -8,6 +8,23 @@ const COLOR_ROL = {
   ADMINISTRADOR: { bg: '#f3e5f5', color: '#6a1b9a' },
 }
 
+const TURNOS = [
+  {
+    valor: 'MAÑANA',
+    icono: '☀️',
+    label: 'Turno Mañana',
+    horario: '07:00 – 13:00',
+    bg: '#fff8e1', color: '#f59e0b',
+  },
+  {
+    valor: 'TARDE',
+    icono: '🌙',
+    label: 'Turno Tarde',
+    horario: '13:00 – 19:00',
+    bg: '#ede9fe', color: '#7c3aed',
+  },
+]
+
 function calcularFuerza(p) {
   let pts = 0
   if (p.length >= 8)           pts++
@@ -21,12 +38,15 @@ function calcularFuerza(p) {
   return               { color: '#2e7d32', pct: 100, label: 'Fuerte' }
 }
 
+const necesitaTurno = (rol) => ['GROOMER', 'CAJERO'].includes(rol)
+
 export default function PersonalModal({ onGuardar, onCerrar }) {
   const [form, setForm] = useState({
     nombre:   '',
     email:    '',
     password: '',
-    rol:      'GROOMER'
+    rol:      'GROOMER',
+    turno:    'MAÑANA',
   })
   const [verPass, setVerPass] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -46,9 +66,17 @@ export default function PersonalModal({ onGuardar, onCerrar }) {
       return alert('La contraseña debe tener al menos una mayúscula')
     if (!/[0-9]/.test(form.password))
       return alert('La contraseña debe tener al menos un número')
+    if (necesitaTurno(form.rol) && !form.turno)
+      return alert('Selecciona el turno de trabajo')
 
     setLoading(true)
-    const exito = await onGuardar(form)
+    const exito = await onGuardar({
+      nombre:   form.nombre,
+      email:    form.email,
+      password: form.password,
+      rol:      form.rol,
+      turno:    necesitaTurno(form.rol) ? form.turno : null,
+    })
     if (exito) onCerrar()
     setLoading(false)
   }
@@ -56,36 +84,33 @@ export default function PersonalModal({ onGuardar, onCerrar }) {
   const colores = COLOR_ROL[form.rol]
 
   return (
-    <div style={estilos.overlay} onClick={onCerrar}>
-      <div style={estilos.modal} onClick={e => e.stopPropagation()}>
+    <div style={s.overlay} onClick={onCerrar}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={estilos.header}>
-          <h2 style={estilos.titulo}>👤 Crear personal</h2>
-          <button style={estilos.btnCerrar} onClick={onCerrar}>✕</button>
+        <div style={s.header}>
+          <h2 style={s.titulo}>👤 Crear personal</h2>
+          <button style={s.btnCerrar} onClick={onCerrar}>✕</button>
         </div>
 
-        <div style={estilos.body}>
+        <div style={s.body}>
 
           {/* Selector de rol */}
-          <div style={estilos.campo}>
-            <label style={estilos.label}>Rol del personal</label>
+          <div style={s.campo}>
+            <label style={s.label}>Rol del personal</label>
             <div style={{ display: 'flex', gap: 8 }}>
               {ROLES_STAFF.map(rol => {
                 const c = COLOR_ROL[rol]
                 const activo = form.rol === rol
                 return (
-                  <button
-                    key={rol}
+                  <button key={rol} type="button"
                     style={{
-                      flex: 1, padding: '10px 8px',
-                      borderRadius: 10, border: '2px solid',
+                      flex: 1, padding: '10px 8px', borderRadius: 10, border: '2px solid',
                       borderColor: activo ? c.color : '#e5e7eb',
-                      background: activo ? c.bg : '#fafafa',
-                      color: activo ? c.color : '#888',
-                      fontWeight: activo ? 700 : 400,
-                      fontSize: 12, cursor: 'pointer',
-                      transition: 'all 0.15s'
+                      background:  activo ? c.bg    : '#fafafa',
+                      color:       activo ? c.color : '#888',
+                      fontWeight:  activo ? 700 : 400,
+                      fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
                     }}
                     onClick={() => setForm(p => ({ ...p, rol }))}
                   >
@@ -105,75 +130,80 @@ export default function PersonalModal({ onGuardar, onCerrar }) {
             background: colores.bg, border: `1px solid ${colores.color}30`
           }}>
             <p style={{ margin: 0, fontSize: 12, color: colores.color, fontWeight: 600 }}>
-              {form.rol === 'GROOMER' && '✂️ El Groomer puede ver y gestionar citas e inventario'}
-              {form.rol === 'CAJERO' && '💰 El Cajero puede gestionar clientes y emitir facturas'}
+              {form.rol === 'GROOMER'       && '✂️ El Groomer puede ver y gestionar citas e inventario'}
+              {form.rol === 'CAJERO'        && '💰 El Cajero puede gestionar clientes y emitir facturas'}
               {form.rol === 'ADMINISTRADOR' && '👑 El Administrador tiene acceso completo al sistema'}
             </p>
           </div>
 
+          {/* ── TURNO — solo para groomer y cajero ── */}
+          {necesitaTurno(form.rol) && (
+            <div style={s.campo}>
+              <label style={s.label}>
+                Turno de trabajo <span style={{ color: 'red' }}>*</span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {TURNOS.map(t => {
+                  const activo = form.turno === t.valor
+                  return (
+                    <button key={t.valor} type="button"
+                      onClick={() => setForm(p => ({ ...p, turno: t.valor }))}
+                      style={{
+                        padding: '14px 12px', borderRadius: 12, border: '2px solid',
+                        borderColor: activo ? t.color : '#e5e7eb',
+                        background:  activo ? t.bg    : '#fafafa',
+                        cursor: 'pointer', textAlign: 'center',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>{t.icono}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: activo ? t.color : '#333' }}>
+                        {t.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: activo ? t.color : '#888', marginTop: 2 }}>
+                        {t.horario}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Nombre */}
-          <div style={estilos.campo}>
-            <label style={estilos.label}>
-              Nombre completo <span style={{ color: 'red' }}>*</span>
-            </label>
-            <input
-              style={estilos.input}
-              name="nombre"
-              placeholder="Nombre del empleado"
-              value={form.nombre}
-              onChange={handleChange}
-              autoFocus
-            />
+          <div style={s.campo}>
+            <label style={s.label}>Nombre completo <span style={{ color: 'red' }}>*</span></label>
+            <input style={s.input} name="nombre" placeholder="Nombre del empleado"
+              value={form.nombre} onChange={handleChange} autoFocus />
           </div>
 
           {/* Email */}
-          <div style={estilos.campo}>
-            <label style={estilos.label}>
-              Email <span style={{ color: 'red' }}>*</span>
-            </label>
-            <input
-              style={estilos.input}
-              name="email"
-              type="email"
+          <div style={s.campo}>
+            <label style={s.label}>Email <span style={{ color: 'red' }}>*</span></label>
+            <input style={s.input} name="email" type="email"
               placeholder="empleado@spa.com"
-              value={form.email}
-              onChange={handleChange}
-            />
+              value={form.email} onChange={handleChange} />
           </div>
 
-          {/* Contraseña temporal */}
-          <div style={estilos.campo}>
-            <label style={estilos.label}>
-              Contraseña temporal <span style={{ color: 'red' }}>*</span>
-            </label>
+          {/* Contraseña */}
+          <div style={s.campo}>
+            <label style={s.label}>Contraseña temporal <span style={{ color: 'red' }}>*</span></label>
             <div style={{ position: 'relative' }}>
               <input
-                style={{ ...estilos.input, paddingRight: 44 }}
+                style={{ ...s.input, paddingRight: 44 }}
                 name="password"
                 type={verPass ? 'text' : 'password'}
                 placeholder="Mín. 8 chars, mayús, número"
-                value={form.password}
-                onChange={handleChange}
+                value={form.password} onChange={handleChange}
               />
-              <button
-                style={estilos.btnOjo}
-                onClick={() => setVerPass(!verPass)}
-                type="button"
-              >
+              <button style={s.btnOjo} onClick={() => setVerPass(!verPass)} type="button">
                 {verPass ? '🙈' : '👁️'}
               </button>
             </div>
-
-            {/* Barra de fuerza */}
             {form.password && (
               <div style={{ marginTop: 6 }}>
                 <div style={{ height: 5, borderRadius: 10, background: '#eee', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 10,
-                    width: `${fuerza.pct}%`,
-                    background: fuerza.color,
-                    transition: 'all 0.3s'
-                  }} />
+                  <div style={{ height: '100%', borderRadius: 10, width: `${fuerza.pct}%`, background: fuerza.color, transition: 'all 0.3s' }} />
                 </div>
                 <span style={{ fontSize: 11, color: fuerza.color, fontWeight: 700 }}>
                   Contraseña {fuerza.label}
@@ -182,29 +212,21 @@ export default function PersonalModal({ onGuardar, onCerrar }) {
             )}
           </div>
 
-          {/* Aviso — sin email de verificación */}
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 10, padding: '10px 14px'
-          }}>
+          {/* Aviso */}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px' }}>
             <p style={{ margin: 0, fontSize: 12, color: '#166534' }}>
-              ✅ La cuenta se activa de inmediato. El empleado puede
-              iniciar sesión con estas credenciales desde ya.
-              Compártelas de forma segura.
+              ✅ La cuenta se activa de inmediato. Comparte las credenciales de forma segura.
             </p>
           </div>
 
         </div>
 
         {/* Footer */}
-        <div style={estilos.footer}>
-          <button style={estilos.btnCancelar} onClick={onCerrar}>
-            Cancelar
-          </button>
+        <div style={s.footer}>
+          <button style={s.btnCancelar} onClick={onCerrar}>Cancelar</button>
           <button
-            style={{ ...estilos.btnGuardar, opacity: loading ? 0.7 : 1 }}
-            onClick={handleSubmit}
-            disabled={loading}
+            style={{ ...s.btnGuardar, opacity: loading ? 0.7 : 1 }}
+            onClick={handleSubmit} disabled={loading}
           >
             {loading ? 'Creando...' : '✅ Crear personal'}
           </button>
@@ -215,63 +237,18 @@ export default function PersonalModal({ onGuardar, onCerrar }) {
   )
 }
 
-const estilos = {
-  overlay: {
-    position: 'fixed', inset: 0,
-    background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center',
-    justifyContent: 'center', zIndex: 1000, padding: 16,
-  },
-  modal: {
-    background: '#fff', borderRadius: 16,
-    width: '100%', maxWidth: 480,
-    maxHeight: '90vh', display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-  },
-  header: {
-    display: 'flex', alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '20px 24px',
-    borderBottom: '1px solid #f0f0f0', flexShrink: 0,
-  },
-  titulo: { margin: 0, fontSize: 18, fontWeight: 700, color: '#1a1a2e' },
-  btnCerrar: {
-    background: 'none', border: 'none',
-    fontSize: 18, cursor: 'pointer', color: '#999',
-  },
-  body: {
-    padding: '20px 24px', display: 'flex',
-    flexDirection: 'column', gap: 14,
-    overflowY: 'auto', flex: 1,
-  },
-  campo: { display: 'flex', flexDirection: 'column', gap: 6 },
-  label: { fontSize: 13, fontWeight: 600, color: '#444' },
-  input: {
-    padding: '10px 12px', borderRadius: 8,
-    border: '1.5px solid #e5e7eb', fontSize: 14,
-    outline: 'none', background: '#fff',
-    color: '#333', fontFamily: 'inherit',
-    width: '100%', boxSizing: 'border-box',
-  },
-  btnOjo: {
-    position: 'absolute', right: 12, top: '50%',
-    transform: 'translateY(-50%)', background: 'none',
-    border: 'none', cursor: 'pointer', fontSize: 16, padding: 0,
-  },
-  footer: {
-    display: 'flex', gap: 10, padding: '16px 24px',
-    borderTop: '1px solid #f0f0f0',
-    justifyContent: 'flex-end', flexShrink: 0,
-  },
-  btnCancelar: {
-    padding: '10px 20px', background: '#f3f4f6',
-    color: '#555', border: 'none', borderRadius: 8,
-    fontSize: 14, fontWeight: 600, cursor: 'pointer',
-  },
-  btnGuardar: {
-    padding: '10px 24px', background: '#6c63ff',
-    color: '#fff', border: 'none', borderRadius: 8,
-    fontSize: 14, fontWeight: 600, cursor: 'pointer',
-  },
+const s = {
+  overlay:    { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
+  modal:      { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  header:     { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 },
+  titulo:     { margin: 0, fontSize: 18, fontWeight: 700, color: '#1a1a2e' },
+  btnCerrar:  { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#999' },
+  body:       { padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 },
+  campo:      { display: 'flex', flexDirection: 'column', gap: 6 },
+  label:      { fontSize: 13, fontWeight: 600, color: '#444' },
+  input:      { padding: '10px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', background: '#fff', color: '#333', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' },
+  btnOjo:     { position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0 },
+  footer:     { display: 'flex', gap: 10, padding: '16px 24px', borderTop: '1px solid #f0f0f0', justifyContent: 'flex-end', flexShrink: 0 },
+  btnCancelar:{ padding: '10px 20px', background: '#f3f4f6', color: '#555', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  btnGuardar: { padding: '10px 24px', background: '#6c63ff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
 }
