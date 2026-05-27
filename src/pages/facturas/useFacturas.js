@@ -3,18 +3,18 @@ import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 
 export function useFacturas() {
-  const [facturas, setFacturas]             = useState([])
-  const [citasSinFactura, setCitasSinFactura] = useState([])
-  const [loading, setLoading]               = useState(true)
+  const [facturas,         setFacturas]         = useState([])
+  const [citasSinFactura,  setCitasSinFactura]  = useState([])
+  const [loading,          setLoading]          = useState(true)
 
   const fetchFacturas = async () => {
     setLoading(true)
     try {
-      // Traer facturas con info de la cita
       const { data, error } = await supabase
         .from('factura')
         .select(`
           id, total, fecha_emision, descuento, observaciones,
+          metodo_pago,
           id_cita, id_cajero,
           cita (
             id, fecha, estado,
@@ -28,7 +28,7 @@ export function useFacturas() {
 
       if (error) throw error
 
-      // Traer nombre del cajero por separado
+      // Traer nombre del cajero
       const cajeroIds = [...new Set(
         (data ?? []).map(f => f.id_cajero).filter(Boolean)
       )]
@@ -47,7 +47,6 @@ export function useFacturas() {
       }))
 
       setFacturas(facturasFinal)
-
     } catch (e) {
       console.error(e)
       toast.error('Error al cargar facturas')
@@ -55,17 +54,14 @@ export function useFacturas() {
     setLoading(false)
   }
 
-  // Traer citas COMPLETADAS que aún no tienen factura
   const fetchCitasSinFactura = async () => {
     try {
-      // IDs de citas que ya tienen factura
       const { data: conFactura } = await supabase
         .from('factura')
         .select('id_cita')
 
       const idsConFactura = (conFactura ?? []).map(f => f.id_cita)
 
-      // Citas completadas
       let query = supabase
         .from('cita')
         .select(`
@@ -85,7 +81,6 @@ export function useFacturas() {
       const { data, error } = await query
       if (error) throw error
       setCitasSinFactura(data ?? [])
-
     } catch (e) {
       console.error(e)
     }
@@ -93,12 +88,25 @@ export function useFacturas() {
 
   const emitirFactura = async (datos) => {
     try {
+      // Asegurar que metodo_pago tiene valor por defecto
+      const datosCompletos = {
+        ...datos,
+        metodo_pago: datos.metodo_pago ?? 'EFECTIVO',
+      }
+
       const { error } = await supabase
         .from('factura')
-        .insert(datos)
+        .insert(datosCompletos)
 
       if (error) throw error
-      toast.success('¡Factura emitida! 🧾')
+
+      const metodoLabel = {
+        EFECTIVO:      '💵 Efectivo',
+        QR:            '📱 QR',
+        TRANSFERENCIA: '🏦 Transferencia',
+      }[datosCompletos.metodo_pago] ?? datosCompletos.metodo_pago
+
+      toast.success(`¡Factura emitida! 🧾 — Cobrado por ${metodoLabel}`)
       fetchFacturas()
       fetchCitasSinFactura()
       return true
@@ -116,6 +124,6 @@ export function useFacturas() {
 
   return {
     facturas, citasSinFactura,
-    loading, emitirFactura
+    loading, emitirFactura,
   }
 }

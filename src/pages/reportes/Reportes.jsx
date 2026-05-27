@@ -356,7 +356,7 @@ export default function Reportes() {
   const { ventasData, citasData, groomersData, loading, recargar } = useReportes(periodo)
 
   const TABS = [
-    { id: 'ventas',   label: '💰 Ventas'   },
+    { id: 'ventas',   label: '💰 venta'   },
     { id: 'citas',    label: '📅 Citas'    },
     { id: 'groomers', label: '✂️ Groomers' },
   ]
