@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 
-export function useTienda() {
-  const [productos, setProductos] = useState([])
-  const [pedidos,   setPedidos]   = useState([])
-  const [loading,   setLoading]   = useState(true)
+export function useTienda(perfil) {
+  const [productos,  setProductos]  = useState([])
+  const [pedidos,    setPedidos]    = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [loadingPed, setLoadingPed] = useState(false)
 
   // ── Cargar productos activos ──────────────────────────────────
   const fetchProductos = async () => {
@@ -17,7 +18,6 @@ export function useTienda() {
         .eq('activo', true)
         .order('categoria')
         .order('nombre')
-
       if (error) throw error
       setProductos(data ?? [])
     } catch (e) {
@@ -27,28 +27,36 @@ export function useTienda() {
     setLoading(false)
   }
 
-  // ── Cargar pedidos del cliente ────────────────────────────────
-  const fetchPedidos = async (idCliente) => {
-    if (!idCliente) return
+  // ── Cargar historial de pedidos ───────────────────────────────
+  // Admin ve todos; cliente solo los suyos
+  const fetchPedidos = async () => {
+    if (!perfil) return
+    setLoadingPed(true)
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('pedido')
         .select(`
           id, total, canal, estado, notas, created_at,
+          cliente:usuario!pedido_id_cliente_fkey ( id, nombre, email ),
           pedido_item (
             id, cantidad, precio_unitario,
-            producto ( nombre )
+            producto ( id, nombre, categoria )
           )
         `)
-        .eq('id_cliente', idCliente)
         .order('created_at', { ascending: false })
-        .limit(20)
 
+      if (perfil.rol === 'CLIENTE') {
+        query = query.eq('id_cliente', perfil.id)
+      }
+
+      const { data, error } = await query
       if (error) throw error
       setPedidos(data ?? [])
     } catch (e) {
       console.error(e)
+      toast.error('Error al cargar historial')
     }
+    setLoadingPed(false)
   }
 
   // ── CRUD productos (admin) ────────────────────────────────────
@@ -80,7 +88,6 @@ export function useTienda() {
 
   const eliminarProducto = async (id, nombre) => {
     try {
-      // Borrado lógico: desactivar en vez de eliminar
       const { error } = await supabase
         .from('producto').update({ activo: false }).eq('id', id)
       if (error) throw error
@@ -93,7 +100,26 @@ export function useTienda() {
     }
   }
 
-  // ── Guardar pedido en BD ──────────────────────────────────────
+  // ── Cambiar estado de un pedido (admin) ───────────────────────
+  const cambiarEstadoPedido = async (id, estado) => {
+    try {
+      const { error } = await supabase
+        .from('pedido').update({ estado }).eq('id', id)
+      if (error) throw error
+      const labels = {
+        CONFIRMADO: '✅ Pedido confirmado',
+        ENTREGADO:  '📦 Pedido entregado',
+        CANCELADO:  '❌ Pedido cancelado',
+        PENDIENTE:  '⏳ Pedido pendiente',
+      }
+      toast.success(labels[estado] ?? 'Estado actualizado')
+      fetchPedidos()
+    } catch (e) {
+      toast.error('Error al cambiar estado')
+    }
+  }
+
+  // ── Guardar pedido + descontar stock + generar factura ────────
   const guardarPedido = async ({ idCliente, items, total, canal, notas }) => {
     try {
       // 1. Crear el pedido
@@ -102,7 +128,6 @@ export function useTienda() {
         .insert({ id_cliente: idCliente, total, canal, notas, estado: 'PENDIENTE' })
         .select()
         .single()
-
       if (pedidoError) throw pedidoError
 
       // 2. Insertar los items
@@ -110,13 +135,10 @@ export function useTienda() {
         id_pedido:       pedidoData.id,
         id_producto:     item.id,
         cantidad:        item.cantidad,
-        precio_unitario: item.precio,
+        precio_unitario: parseFloat(item.precio),
       }))
-
       const { error: itemsError } = await supabase
-        .from('pedido_item')
-        .insert(itemsInsert)
-
+        .from('pedido_item').insert(itemsInsert)
       if (itemsError) throw itemsError
 
       // 3. Descontar stock de cada producto
@@ -129,9 +151,30 @@ export function useTienda() {
         }
       }
 
-      fetchProductos()
-      fetchPedidos(idCliente)
+      // 4. Generar factura automática (Opción B)
+      const { error: facturaError } = await supabase
+        .from('factura')
+        .insert({
+          id_pedido:     pedidoData.id,
+          id_cita:       null,
+          id_cajero:     null,
+          total:         parseFloat(total),
+          descuento:     0,
+          tipo:          'TIENDA',
+          metodo_pago:   canal === 'WHATSAPP' ? 'EFECTIVO' : 'TRANSFERENCIA',
+          observaciones: `Pedido realizado por ${canal}`,
+          fecha_emision: new Date().toISOString(),
+        })
+      if (facturaError) {
+        console.warn('Factura no generada:', facturaError.message)
+      } else {
+        toast.success('🧾 Factura generada automáticamente')
+      }
+
+      await fetchProductos()
+      await fetchPedidos()
       return pedidoData.id
+
     } catch (e) {
       console.error(e)
       toast.error('Error al registrar el pedido')
@@ -139,12 +182,18 @@ export function useTienda() {
     }
   }
 
-  useEffect(() => { fetchProductos() }, [])
+  useEffect(() => {
+    fetchProductos()
+  }, [])
+
+  useEffect(() => {
+    if (perfil) fetchPedidos()
+  }, [perfil?.id])
 
   return {
-    productos, pedidos, loading,
+    productos, pedidos, loading, loadingPed,
     fetchProductos, fetchPedidos,
     crearProducto, editarProducto, eliminarProducto,
-    guardarPedido,
+    cambiarEstadoPedido, guardarPedido,
   }
 }

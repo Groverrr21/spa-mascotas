@@ -1,5 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useNotificaciones } from '../../hooks/useNotificaciones'
+import NotificacionesPanel from '../notificaciones/NotificacionesPanel'
 
 const MENU = [
   { path: '/dashboard',      label: 'Dashboard',  icono: '🏠', roles: ['CLIENTE','GROOMER','CAJERO','ADMINISTRADOR'] },
@@ -15,6 +17,7 @@ const MENU = [
   { path: '/admin/personal', label: 'Personal',   icono: '👑', roles: ['ADMINISTRADOR'] },
   { path: '/admin/logs',     label: 'Logs',       icono: '📋', roles: ['ADMINISTRADOR'] },
   { path: '/calendario',     label: 'Calendario', icono: '🗓️', roles: ['ADMINISTRADOR','CAJERO','GROOMER'] },
+  { path: '/perfil',         label: 'Mi Perfil',  icono: '👤', roles: ['CLIENTE','GROOMER','CAJERO','ADMINISTRADOR'] },
 ]
 
 const COLOR_ROL = {
@@ -27,6 +30,11 @@ const COLOR_ROL = {
 export default function Layout({ children }) {
   const { perfil, logout } = useAuth()
   const navigate = useNavigate()
+
+  const {
+    notificaciones, noLeidas, loading,
+    marcarLeida, marcarTodasLeidas,
+  } = useNotificaciones(perfil)
 
   const handleLogout = async () => {
     await logout()
@@ -43,7 +51,6 @@ export default function Layout({ children }) {
       {/* SIDEBAR */}
       <aside style={estilos.sidebar}>
 
-        {/* Logo */}
         <div style={estilos.logo}>
           <span style={{ fontSize: 32, lineHeight: 1 }}>🐾</span>
           <div>
@@ -52,7 +59,6 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        {/* Info usuario */}
         <div style={estilos.usuarioCard}>
           <div style={estilos.avatar}>{inicial}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -65,13 +71,10 @@ export default function Layout({ children }) {
 
         <div style={estilos.separador} />
 
-        {/* Menú */}
         <nav style={estilos.nav}>
           <p style={estilos.navLabel}>MENÚ</p>
           {menuFiltrado.map(item => (
-            <NavLink
-              key={item.path}
-              to={item.path}
+            <NavLink key={item.path} to={item.path}
               style={({ isActive }) => ({
                 ...estilos.navItem,
                 background: isActive ? 'rgba(108,99,255,0.12)' : 'transparent',
@@ -88,7 +91,6 @@ export default function Layout({ children }) {
 
         <div style={{ flex: 1 }} />
 
-        {/* Cerrar sesión */}
         <button style={estilos.logoutBtn} onClick={handleLogout}>
           <span>🚪</span>
           <span>Cerrar sesión</span>
@@ -104,11 +106,24 @@ export default function Layout({ children }) {
           <p style={estilos.topbarBienvenida}>
             Hola, <strong>{perfil?.nombre}</strong> 👋
           </p>
-          <p style={estilos.topbarFecha}>
-            {new Date().toLocaleDateString('es-ES', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-            })}
-          </p>
+
+          {/* Derecha: fecha + campana */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <p style={estilos.topbarFecha}>
+              {new Date().toLocaleDateString('es-ES', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+              })}
+            </p>
+
+            {/* Campana de notificaciones */}
+            <NotificacionesPanel
+              notificaciones={notificaciones}
+              noLeidas={noLeidas}
+              loading={loading}
+              marcarLeida={marcarLeida}
+              marcarTodasLeidas={marcarTodasLeidas}
+            />
+          </div>
         </header>
 
         <main style={estilos.main}>

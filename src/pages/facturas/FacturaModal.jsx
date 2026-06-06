@@ -57,34 +57,26 @@ export default function FacturaModal({ citasSinFactura, onGuardar, onCerrar }) {
   const verificarClienteFrecuente = async () => {
     setCargandoCliente(true)
     try {
-      // 1. Obtener id_cliente desde la mascota de la cita
-      const { data: mascota } = await supabase
-        .from('mascota')
-        .select('id_cliente, nombre')
-        .eq('id', citaSeleccionada.id_mascota ?? citaSeleccionada.mascota?.id)
-        .maybeSingle()
+      // ✅ Usar id_cliente que ya viene en los datos (no hacer query extra)
+      const idCliente = citaSeleccionada.mascota?.id_cliente
+      if (!idCliente) { setCargandoCliente(false); return }
 
-      if (!mascota?.id_cliente) {
-        setCargandoCliente(false)
-        return
-      }
-
-      // 2. Obtener nombre del cliente
+      // Obtener nombre del cliente
       const { data: cliente } = await supabase
         .from('usuario')
         .select('nombre')
-        .eq('id', mascota.id_cliente)
+        .eq('id', idCliente)
         .single()
 
-      // 3. Contar TODAS las citas completadas de este cliente
+      // Contar TODAS las citas completadas del cliente
       const { data: mascotas } = await supabase
         .from('mascota')
         .select('id')
-        .eq('id_cliente', mascota.id_cliente)
+        .eq('id_cliente', idCliente)
 
       const idsMascotas = (mascotas ?? []).map(m => m.id)
-
       let totalCitas = 0
+
       if (idsMascotas.length > 0) {
         const { count } = await supabase
           .from('cita')
@@ -95,14 +87,8 @@ export default function FacturaModal({ citasSinFactura, onGuardar, onCerrar }) {
       }
 
       const tier = getTierFrecuente(totalCitas)
+      setClienteInfo({ nombre: cliente?.nombre ?? 'Cliente', totalCitas, tier })
 
-      setClienteInfo({
-        nombre:     cliente?.nombre ?? 'Cliente',
-        totalCitas,
-        tier,
-      })
-
-      // 4. Pre-llenar descuento automático si hay tier
       if (tier) {
         const descuentoSugerido = parseFloat(((subtotal * tier.pct) / 100).toFixed(2))
         setDescuento(descuentoSugerido)
@@ -121,6 +107,9 @@ export default function FacturaModal({ citasSinFactura, onGuardar, onCerrar }) {
   const handleSeleccionarCita = (e) => {
     const id   = e.target.value
     const cita = citasSinFactura.find(c => c.id === id)
+
+    console.log('Cita seleccionada:', cita)
+    console.log('id_cliente:', cita?.mascota?.id_cliente)
     setCitaSeleccionada(cita ?? null)
     setDescuento(0)
   }
