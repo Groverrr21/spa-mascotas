@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 
-// ── Turnos ────────────────────────────────────────────────────
 const TURNO_CONFIG = {
-  MAÑANA: { icono: '☀️', label: 'Turno Mañana', horario: '07:00 – 13:00', min: '07:00', max: '12:59', color: '#f59e0b', bg: '#fff8e1' },
-  TARDE:  { icono: '🌙', label: 'Turno Tarde',  horario: '13:00 – 19:00', min: '13:00', max: '19:00', color: '#7c3aed', bg: '#ede9fe' },
+  MAÑANA: { icono: '☀️', label: 'Turno Mañana', horario: '07:00 - 13:00', min: '07:00', max: '12:59', color: '#f59e0b', bg: '#fff8e1' },
+  TARDE:  { icono: '🌙', label: 'Turno Tarde',  horario: '13:00 - 19:00', min: '13:00', max: '19:00', color: '#7c3aed', bg: '#ede9fe' },
 }
 
 function horaEnTurno(hora, turno) {
@@ -15,9 +14,7 @@ function horaEnTurno(hora, turno) {
   return true
 }
 
-// ── Helpers de tiempo ─────────────────────────────────────────
 function parseFechaLocal(fechaStr) {
-  // Maneja tanto '2026-05-25T08:30:00' como '2026-05-25T12:30:00.000Z'
   if (!fechaStr) return null
   const d = new Date(fechaStr)
   return isNaN(d.getTime()) ? null : d
@@ -46,25 +43,28 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
   const [loading,   setLoading]   = useState(false)
 
   const [form, setForm] = useState({
-    id_mascota: '',
-    id_groomer: '',
-    fecha:      '',
-    hora:       '',
+    id_mascota: '', id_groomer: '', fecha: '', hora: '',
   })
   const [serviciosSeleccionados, setServiciosSeleccionados] = useState([])
 
-  // ── Estado de validaciones ────────────────────────────────────
-  const [solapamiento,    setSolapamiento]    = useState(null)   // objeto con la cita en conflicto
+  // ── Validaciones ──────────────────────────────────────────────
+  const [solapamiento,    setSolapamiento]    = useState(null)
+  const [capacidadLlena,  setCapacidadLlena]  = useState(false)
+  const [maxCitasInfo,    setMaxCitasInfo]    = useState(null)  // { max, total }
   const [verificando,     setVerificando]     = useState(false)
-  const [citasDiaGroomer, setCitasDiaGroomer] = useState([])     // todas las citas del groomer ese día
+  const [citasDiaGroomer, setCitasDiaGroomer] = useState([])
 
   useEffect(() => { cargarDatos() }, [])
 
   const cargarDatos = async () => {
     const { data: m } = await supabase
       .from('mascota').select('id, nombre, raza').eq('id_cliente', perfil.id)
+
+    // ── Traer groomers CON max_citas_diarias ──────────────────
     const { data: g } = await supabase
-      .from('groomer').select('id, especialidad, turno, usuario:usuario!groomer_id_fkey(nombre)')
+      .from('groomer')
+      .select('id, especialidad, turno, max_citas_diarias, usuario:usuario!groomer_id_fkey(nombre)')
+
     const { data: s } = await supabase
       .from('servicio').select('id, nombre, precio, duracion').order('nombre')
 
@@ -80,29 +80,27 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
       prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
     )
 
-  // ── Cálculos de duración y hora fin ───────────────────────────
   const serviciosElegidos = servicios.filter(s => serviciosSeleccionados.includes(s.id))
   const duracionTotal     = serviciosElegidos.reduce((sum, s) => sum + (s.duracion ?? 60), 0)
 
   const horaFinTexto = (() => {
     if (!form.fecha || !form.hora || serviciosSeleccionados.length === 0) return null
     const inicio = new Date(`${form.fecha}T${form.hora}:00`)
-    const fin    = addMinutos(inicio, duracionTotal)
-    return formatHoraLocal(fin)
+    return formatHoraLocal(addMinutos(inicio, duracionTotal))
   })()
 
-  // ── Validación de turno ───────────────────────────────────────
   const groomerSeleccionado = groomers.find(g => g.id === form.id_groomer) ?? null
   const turnoGroomer        = groomerSeleccionado?.turno ?? null
   const cfgTurno            = TURNO_CONFIG[turnoGroomer] ?? null
   const hayConflictoTurno   = form.id_groomer && form.hora && turnoGroomer
-    ? !horaEnTurno(form.hora, turnoGroomer)
-    : false
+    ? !horaEnTurno(form.hora, turnoGroomer) : false
 
-  // ── Verificación de solapamiento ──────────────────────────────
+  // ── Verificar solapamiento + capacidad máxima ─────────────────
   const verificarSolapamiento = useCallback(async () => {
     if (!form.id_groomer || !form.fecha || !form.hora || serviciosSeleccionados.length === 0) {
       setSolapamiento(null)
+      setCapacidadLlena(false)
+      setMaxCitasInfo(null)
       setCitasDiaGroomer([])
       return
     }
@@ -124,7 +122,19 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
         .gte('fecha', diaInicio)
         .lte('fecha', diaFin)
 
-      // Construir bloques de tiempo existentes
+      // ── Verificar capacidad máxima diaria ─────────────────────
+      const maxCitas = groomerSeleccionado?.max_citas_diarias ?? 8
+      const totalCitasDia = (citasExistentes ?? []).length
+
+      if (totalCitasDia >= maxCitas) {
+        setCapacidadLlena(true)
+        setMaxCitasInfo({ max: maxCitas, total: totalCitasDia })
+      } else {
+        setCapacidadLlena(false)
+        setMaxCitasInfo({ max: maxCitas, total: totalCitasDia })
+      }
+
+      // ── Verificar solapamiento ────────────────────────────────
       const bloques = (citasExistentes ?? []).map(cita => {
         const inicio   = parseFechaLocal(cita.fecha)
         const duracion = (cita.cita_servicio ?? [])
@@ -132,60 +142,49 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
         const fin = addMinutos(inicio, duracion)
         return {
           id:       cita.id,
-          mascota:  cita.mascota?.nombre ?? '—',
-          inicio,
-          fin,
-          duracion,
+          mascota:  cita.mascota?.nombre ?? '',
+          inicio, fin, duracion,
           servicios: (cita.cita_servicio ?? []).map(cs => cs.servicio?.nombre).filter(Boolean),
         }
       }).sort((a, b) => a.inicio - b.inicio)
 
       setCitasDiaGroomer(bloques)
 
-      // Detectar solapamiento con la nueva cita
       const nuevaInicio = new Date(`${form.fecha}T${form.hora}:00`)
       const nuevaFin    = addMinutos(nuevaInicio, duracionTotal)
-
-      const conflicto = bloques.find(b =>
-        nuevaInicio < b.fin && nuevaFin > b.inicio
-      )
+      const conflicto   = bloques.find(b => nuevaInicio < b.fin && nuevaFin > b.inicio)
       setSolapamiento(conflicto ?? null)
 
     } catch (e) {
-      console.error('Error verificando solapamiento:', e)
+      console.error('Error verificando disponibilidad:', e)
     }
     setVerificando(false)
-  }, [form.id_groomer, form.fecha, form.hora, serviciosSeleccionados, duracionTotal])
+  }, [form.id_groomer, form.fecha, form.hora, serviciosSeleccionados, duracionTotal, groomerSeleccionado])
 
-  // Disparar verificación cuando cambian los campos relevantes
   useEffect(() => {
     const timer = setTimeout(verificarSolapamiento, 400)
     return () => clearTimeout(timer)
   }, [verificarSolapamiento])
 
-  // ── Submit ────────────────────────────────────────────────────
   const totalServicios = serviciosElegidos.reduce((sum, s) => sum + parseFloat(s.precio), 0)
   const hoy = new Date().toISOString().split('T')[0]
 
-  const puedeConfirmar = !hayConflictoTurno && !solapamiento && !verificando
+  const puedeConfirmar = !hayConflictoTurno && !solapamiento && !capacidadLlena && !verificando
 
   const handleSubmit = async () => {
     if (!form.id_mascota) return alert('Selecciona una mascota')
     if (!form.fecha)      return alert('Selecciona una fecha')
     if (!form.hora)       return alert('Selecciona una hora')
     if (serviciosSeleccionados.length === 0) return alert('Selecciona al menos un servicio')
-    if (hayConflictoTurno) return
-    if (solapamiento)     return
+    if (hayConflictoTurno || solapamiento || capacidadLlena) return
 
     setLoading(true)
-    const datosCita = {
+    const exito = await onGuardar({
       id_mascota: form.id_mascota,
       id_groomer: form.id_groomer || null,
-      // Guardar hora local directamente (sin conversión UTC)
       fecha:      `${form.fecha}T${form.hora}:00`,
       estado:     'PENDIENTE',
-    }
-    const exito = await onGuardar(datosCita, serviciosSeleccionados)
+    }, serviciosSeleccionados)
     if (exito) onCerrar()
     setLoading(false)
   }
@@ -194,10 +193,9 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
     <div style={s.overlay} onClick={onCerrar}>
       <div style={s.modal} onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div style={s.header}>
-          <h2 style={s.titulo}>📅 Nueva cita</h2>
-          <button style={s.btnCerrar} onClick={onCerrar}>✕</button>
+          <h2 style={s.titulo}>Nueva cita</h2>
+          <button style={s.btnCerrar} onClick={onCerrar}>X</button>
         </div>
 
         <div style={s.body}>
@@ -215,8 +213,8 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
             </select>
             {mascotas.length === 0 && (
               <p style={{ color: '#e53e3e', fontSize: 12, margin: '4px 0 0' }}>
-                ⚠️ No tienes mascotas.{' '}
-                <a href="/mascotas" style={{ color: '#6c63ff' }}>Registra una aquí</a>
+                No tienes mascotas.{' '}
+                <a href="/mascotas" style={{ color: '#6c63ff' }}>Registra una aqui</a>
               </p>
             )}
           </div>
@@ -231,25 +229,50 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                 return (
                   <option key={g.id} value={g.id}>
                     {g.usuario?.nombre ?? 'Groomer'}
-                    {g.turno ? ` — ${cfg?.icono} ${cfg?.label} (${cfg?.horario})` : ''}
-                    {g.especialidad ? ` · ${g.especialidad}` : ''}
+                    {g.turno ? ` - ${cfg?.icono} ${cfg?.label} (${cfg?.horario})` : ''}
+                    {g.especialidad ? ` - ${g.especialidad}` : ''}
                   </option>
                 )
               })}
             </select>
 
-            {/* Info turno groomer */}
             {groomerSeleccionado && cfgTurno && (
               <div style={{ ...s.infoBadge, background: cfgTurno.bg, borderColor: cfgTurno.color + '30' }}>
                 <span style={{ fontSize: 18 }}>{cfgTurno.icono}</span>
                 <div>
                   <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: cfgTurno.color }}>
-                    {groomerSeleccionado.usuario?.nombre} · {cfgTurno.label}
+                    {groomerSeleccionado.usuario?.nombre} - {cfgTurno.label}
                   </p>
                   <p style={{ margin: 0, fontSize: 11, color: cfgTurno.color }}>
                     Horario disponible: {cfgTurno.horario}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* ── Alerta capacidad máxima ── */}
+            {capacidadLlena && maxCitasInfo && (
+              <div style={s.alertaCapacidad}>
+                <span style={{ fontSize: 20 }}>🚫</span>
+                <div>
+                  <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: 13, color: '#c62828' }}>
+                    Groomer al máximo de citas del dia
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12, color: '#c62828' }}>
+                    {groomerSeleccionado?.usuario?.nombre} ya tiene {maxCitasInfo.total} de {maxCitasInfo.max} citas
+                    permitidas para este dia. Selecciona otro groomer u otra fecha.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Info capacidad disponible */}
+            {!capacidadLlena && maxCitasInfo && form.id_groomer && form.fecha && (
+              <div style={{ ...s.infoBadge, background: '#f0fdf4', borderColor: '#22c55e30' }}>
+                <span>📋</span>
+                <p style={{ margin: 0, fontSize: 12, color: '#2e7d32', fontWeight: 600 }}>
+                  Capacidad: {maxCitasInfo.total} / {maxCitasInfo.max} citas agendadas para este dia
+                </p>
               </div>
             )}
           </div>
@@ -261,7 +284,6 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
               <input style={s.input} type="date" name="fecha"
                 min={hoy} value={form.fecha} onChange={handleChange} />
             </div>
-
             <div style={s.campo}>
               <label style={s.label}>
                 Hora <span style={{ color: 'red' }}>*</span>
@@ -282,20 +304,18 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                 max={cfgTurno?.max ?? '19:00'}
                 value={form.hora} onChange={handleChange}
               />
-
-              {/* Duración y hora fin */}
               {horaFinTexto && !hayConflictoTurno && !solapamiento && (
-                <div style={{ ...s.infoBadge, background: '#f0fdf4', borderColor: '#22c55e30' }}>
+                <div style={{ ...s.infoBadge, background: '#f0fdf4', borderColor: '#22c55e30', marginTop: 4 }}>
                   <span>⏱</span>
                   <p style={{ margin: 0, fontSize: 12, color: '#2e7d32', fontWeight: 600 }}>
-                    Duración: {minutosATexto(duracionTotal)} · Finaliza aprox. a las {horaFinTexto}
+                    Duracion: {minutosATexto(duracionTotal)} - Finaliza aprox. a las {horaFinTexto}
                   </p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* ── Alerta de conflicto de turno ── */}
+          {/* Alerta conflicto turno */}
           {hayConflictoTurno && (
             <div style={s.alertaError}>
               <span style={{ fontSize: 20 }}>⚠️</span>
@@ -304,58 +324,49 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                   Hora fuera del turno del groomer
                 </p>
                 <p style={{ margin: 0, fontSize: 12, color: '#c62828' }}>
-                  {groomerSeleccionado?.usuario?.nombre} trabaja en el{' '}
-                  <strong>{cfgTurno?.label}</strong> ({cfgTurno?.horario}).
-                  Selecciona una hora dentro de ese rango.
+                  {groomerSeleccionado?.usuario?.nombre} trabaja en el {cfgTurno?.label} ({cfgTurno?.horario}).
                 </p>
               </div>
             </div>
           )}
 
-          {/* ── Alerta de solapamiento ── */}
+          {/* Alerta solapamiento */}
           {solapamiento && !hayConflictoTurno && (
             <div style={s.alertaError}>
               <span style={{ fontSize: 20 }}>🔒</span>
               <div>
                 <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: 13, color: '#c62828' }}>
-                  Horario no disponible — el groomer tiene otra cita
+                  Horario no disponible
                 </p>
                 <p style={{ margin: '0 0 2px', fontSize: 12, color: '#c62828' }}>
-                  🐾 <strong>{solapamiento.mascota}</strong> ·{' '}
-                  {formatHoraLocal(solapamiento.inicio)} – {formatHoraLocal(solapamiento.fin)}{' '}
+                  {solapamiento.mascota} - {formatHoraLocal(solapamiento.inicio)} a {formatHoraLocal(solapamiento.fin)}
                   ({minutosATexto(solapamiento.duracion)})
                 </p>
                 <p style={{ margin: 0, fontSize: 12, color: '#c62828' }}>
                   Selecciona una hora antes de las {formatHoraLocal(solapamiento.inicio)} o
-                  después de las {formatHoraLocal(solapamiento.fin)}.
+                  despues de las {formatHoraLocal(solapamiento.fin)}.
                 </p>
               </div>
             </div>
           )}
 
-          {/* ── Agenda del groomer ese día ── */}
+          {/* Agenda del día */}
           {form.id_groomer && form.fecha && citasDiaGroomer.length > 0 && (
             <div style={s.agendaBox}>
               <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#6c63ff', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                📅 Agenda de {groomerSeleccionado?.usuario?.nombre} — {new Date(form.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
+                Agenda de {groomerSeleccionado?.usuario?.nombre} - {new Date(form.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {citasDiaGroomer.map((bloque, i) => (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '7px 10px', borderRadius: 8,
-                    background: '#fff5f5', border: '1px solid #fecaca',
-                  }}>
-                    <span style={{ fontSize: 18 }}>🔴</span>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, background: '#fff5f5', border: '1px solid #fecaca' }}>
+                    <span style={{ fontSize: 16 }}>🔴</span>
                     <div style={{ flex: 1 }}>
                       <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#c62828' }}>
-                        {formatHoraLocal(bloque.inicio)} – {formatHoraLocal(bloque.fin)}
-                        <span style={{ marginLeft: 6, fontWeight: 400, color: '#888' }}>
-                          ({minutosATexto(bloque.duracion)})
-                        </span>
+                        {formatHoraLocal(bloque.inicio)} - {formatHoraLocal(bloque.fin)}
+                        <span style={{ marginLeft: 6, fontWeight: 400, color: '#888' }}>({minutosATexto(bloque.duracion)})</span>
                       </p>
                       <p style={{ margin: 0, fontSize: 11, color: '#888' }}>
-                        🐾 {bloque.mascota} · {bloque.servicios.join(', ')}
+                        {bloque.mascota} - {bloque.servicios.join(', ')}
                       </p>
                     </div>
                   </div>
@@ -364,13 +375,10 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
             </div>
           )}
 
-          {/* ── Indicador de verificando ── */}
           {verificando && form.id_groomer && form.fecha && form.hora && (
             <div style={{ ...s.infoBadge, background: '#f8f8ff', borderColor: '#ede9fe' }}>
               <span>⏳</span>
-              <p style={{ margin: 0, fontSize: 12, color: '#6c63ff' }}>
-                Verificando disponibilidad del groomer...
-              </p>
+              <p style={{ margin: 0, fontSize: 12, color: '#6c63ff' }}>Verificando disponibilidad...</p>
             </div>
           )}
 
@@ -380,7 +388,7 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
               Servicios <span style={{ color: 'red' }}>*</span>
               {serviciosSeleccionados.length > 0 && (
                 <span style={{ marginLeft: 8, fontSize: 11, color: '#6c63ff', fontWeight: 600 }}>
-                  Duración total: {minutosATexto(duracionTotal)}
+                  Duracion total: {minutosATexto(duracionTotal)}
                 </span>
               )}
             </label>
@@ -389,11 +397,7 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                 const sel = serviciosSeleccionados.includes(sv.id)
                 return (
                   <div key={sv.id}
-                    style={{
-                      ...s.servicioItem,
-                      border:     `2px solid ${sel ? '#6c63ff' : '#e5e7eb'}`,
-                      background: sel ? '#f0eeff' : '#fafafa',
-                    }}
+                    style={{ ...s.servicioItem, border: `2px solid ${sel ? '#6c63ff' : '#e5e7eb'}`, background: sel ? '#f0eeff' : '#fafafa' }}
                     onClick={() => toggleServicio(sv.id)}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -404,16 +408,13 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                         Bs. {parseFloat(sv.precio).toFixed(2)}
                       </span>
                     </div>
-                    <span style={{ fontSize: 11, color: '#999' }}>
-                      ⏱ {minutosATexto(sv.duracion)}
-                    </span>
+                    <span style={{ fontSize: 11, color: '#999' }}>⏱ {minutosATexto(sv.duracion)}</span>
                   </div>
                 )
               })}
             </div>
           </div>
 
-          {/* Total */}
           {serviciosSeleccionados.length > 0 && (
             <div style={s.totalBox}>
               <div>
@@ -422,7 +423,7 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                 </span>
                 {horaFinTexto && (
                   <p style={{ margin: '2px 0 0', fontSize: 12, color: '#888' }}>
-                    ⏱ {minutosATexto(duracionTotal)} · Fin aprox. {horaFinTexto}
+                    Fin aprox. {horaFinTexto}
                   </p>
                 )}
               </div>
@@ -434,7 +435,6 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
 
         </div>
 
-        {/* Footer */}
         <div style={s.footer}>
           <button style={s.btnCancelar} onClick={onCerrar}>Cancelar</button>
           <button
@@ -442,17 +442,19 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
               ...s.btnGuardar,
               opacity:    (loading || !puedeConfirmar) ? 0.6 : 1,
               cursor:     !puedeConfirmar ? 'not-allowed' : 'pointer',
-              background: solapamiento    ? '#e53e3e'
-                        : hayConflictoTurno ? '#e53e3e'
+              background: capacidadLlena   ? '#c62828'
+                        : solapamiento     ? '#e53e3e'
+                        : hayConflictoTurno? '#e53e3e'
                         : '#6c63ff',
             }}
             onClick={handleSubmit}
             disabled={loading || !puedeConfirmar}
           >
-            {loading        ? 'Agendando...'
-           : verificando    ? '⏳ Verificando...'
-           : solapamiento   ? '🔒 Horario ocupado'
-           : hayConflictoTurno ? '⚠️ Hora no disponible'
+            {loading          ? 'Agendando...'
+           : verificando      ? '⏳ Verificando...'
+           : capacidadLlena   ? '🚫 Groomer al maximo'
+           : solapamiento     ? '🔒 Horario ocupado'
+           : hayConflictoTurno? '⚠️ Hora no disponible'
            : 'Confirmar cita'}
           </button>
         </div>
@@ -463,21 +465,22 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
 }
 
 const s = {
-  overlay:     { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
-  modal:       { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
-  header:      { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 },
-  titulo:      { margin: 0, fontSize: 18, fontWeight: 700, color: '#1a1a2e' },
-  btnCerrar:   { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#999' },
-  body:        { padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 },
-  campo:       { display: 'flex', flexDirection: 'column', gap: 6 },
-  label:       { fontSize: 13, fontWeight: 600, color: '#444' },
-  input:       { padding: '10px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', background: '#fafafa', color: '#333', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s' },
-  infoBadge:   { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid', marginTop: 4 },
-  alertaError: { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 14px', background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10 },
-  agendaBox:   { padding: '12px 14px', background: '#f8f8ff', border: '1px solid #ede9fe', borderRadius: 10 },
-  servicioItem:{ padding: '10px 14px', borderRadius: 8, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2, transition: 'all 0.15s' },
-  totalBox:    { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0eeff', borderRadius: 10, padding: '12px 16px' },
-  footer:      { display: 'flex', gap: 10, padding: '16px 24px', borderTop: '1px solid #f0f0f0', justifyContent: 'flex-end', flexShrink: 0 },
-  btnCancelar: { padding: '10px 20px', background: '#f3f4f6', color: '#555', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  btnGuardar:  { padding: '10px 24px', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, transition: 'all 0.2s' },
+  overlay:       { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
+  modal:         { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  header:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 },
+  titulo:        { margin: 0, fontSize: 18, fontWeight: 700, color: '#1a1a2e' },
+  btnCerrar:     { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#999' },
+  body:          { padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 },
+  campo:         { display: 'flex', flexDirection: 'column', gap: 6 },
+  label:         { fontSize: 13, fontWeight: 600, color: '#444' },
+  input:         { padding: '10px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', background: '#fafafa', color: '#333', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s' },
+  infoBadge:     { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid', marginTop: 4 },
+  alertaError:   { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 14px', background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10 },
+  alertaCapacidad:{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 14px', background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10, marginTop: 6 },
+  agendaBox:     { padding: '12px 14px', background: '#f8f8ff', border: '1px solid #ede9fe', borderRadius: 10 },
+  servicioItem:  { padding: '10px 14px', borderRadius: 8, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2, transition: 'all 0.15s' },
+  totalBox:      { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0eeff', borderRadius: 10, padding: '12px 16px' },
+  footer:        { display: 'flex', gap: 10, padding: '16px 24px', borderTop: '1px solid #f0f0f0', justifyContent: 'flex-end', flexShrink: 0 },
+  btnCancelar:   { padding: '10px 20px', background: '#f3f4f6', color: '#555', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  btnGuardar:    { padding: '10px 24px', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, transition: 'all 0.2s' },
 }
