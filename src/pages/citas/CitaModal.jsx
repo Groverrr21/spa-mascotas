@@ -6,11 +6,14 @@ const TURNO_CONFIG = {
   TARDE:  { icono: '🌙', label: 'Turno Tarde',  horario: '13:00 - 19:00', min: '13:00', max: '19:00', color: '#7c3aed', bg: '#ede9fe' },
 }
 
-function horaEnTurno(hora, turno) {
+function citaEnTurno(hora, duracionMinutos, turno) {
   if (!hora || !turno) return true
-  const h = parseInt(hora.split(':')[0], 10)
-  if (turno === 'MAÑANA') return h >= 7  && h < 13
-  if (turno === 'TARDE')  return h >= 13 && h <= 19
+  const [h, m]      = hora.split(':').map(Number)
+  const inicioMin   = h * 60 + m
+  const finMin      = inicioMin + (duracionMinutos || 0)
+
+  if (turno === 'MAÑANA') return inicioMin >= 7 * 60  && finMin <= 13 * 60
+  if (turno === 'TARDE')  return inicioMin >= 13 * 60 && finMin <= 19 * 60
   return true
 }
 
@@ -92,8 +95,9 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
   const groomerSeleccionado = groomers.find(g => g.id === form.id_groomer) ?? null
   const turnoGroomer        = groomerSeleccionado?.turno ?? null
   const cfgTurno            = TURNO_CONFIG[turnoGroomer] ?? null
-  const hayConflictoTurno   = form.id_groomer && form.hora && turnoGroomer
-    ? !horaEnTurno(form.hora, turnoGroomer) : false
+  const hayConflictoTurno = form.id_groomer && form.hora && turnoGroomer
+  ? !citaEnTurno(form.hora, duracionTotal, turnoGroomer)
+  : false
 
   // ── Verificar solapamiento + capacidad máxima ─────────────────
   const verificarSolapamiento = useCallback(async () => {
@@ -325,6 +329,8 @@ export default function CitaModal({ perfil, onGuardar, onCerrar }) {
                 </p>
                 <p style={{ margin: 0, fontSize: 12, color: '#c62828' }}>
                   {groomerSeleccionado?.usuario?.nombre} trabaja en el {cfgTurno?.label} ({cfgTurno?.horario}).
+                  Con {minutosATexto(duracionTotal)} de servicios, la cita finalizaria fuera de su horario.
+                  Selecciona una hora mas temprana.
                 </p>
               </div>
             </div>
